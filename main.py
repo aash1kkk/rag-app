@@ -12,6 +12,7 @@ from vecotr_db import QdrantStorage
 from customs_types import RAQQueryResult, RAGSearchResult ,RAGUpsertResult,RAGChunkAndSrc
 from google import genai
 load_dotenv()
+app = FastAPI()
 inngest_client = inngest.Inngest(
     app_id="rag_app",
     logger=logging.getLogger("uvicorn"),
@@ -101,7 +102,7 @@ async def rag_query_pdf_ai(ctx: inngest.Context):
         "num_contexts": len(found.contexts)
     }
 
-app = FastAPI()
+
 
 @app.get("/")
 def root():
