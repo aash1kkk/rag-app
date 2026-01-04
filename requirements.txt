@@ -1,0 +1,7 @@
+fastapi
+uvicorn
+inngest
+python-dotenv
+qdrant-client
+google-generativeai
+pydantic
