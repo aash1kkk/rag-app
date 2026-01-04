@@ -13,6 +13,7 @@ from customs_types import RAQQueryResult, RAGSearchResult ,RAGUpsertResult,RAGCh
 from google import genai
 load_dotenv()
 signing_key = os.getenv("INNGEST_SIGNING_KEY")
+INNGEST_DEV = os.getenv("INNGEST_DEV", "true").lower() == "true"
 app = FastAPI()
 inngest_client = inngest.Inngest(
     app_id="rag_app",
