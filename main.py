@@ -21,6 +21,10 @@ inngest_client = inngest.Inngest(
     is_production=True,
     serializer=inngest.PydanticSerializer()
 )
+inngest_app = inngest(secret_key=signing_key)  # use env var in prod
+@app.post("/api/inngest")
+async def inngest_webhook(req: dict):
+    return await inngest_app.handle(req)
 
 @inngest_client.create_function(
     fn_id="RAG: Ingest PDF",
