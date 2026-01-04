@@ -12,6 +12,7 @@ from vecotr_db import QdrantStorage
 from customs_types import RAQQueryResult, RAGSearchResult ,RAGUpsertResult,RAGChunkAndSrc
 from google import genai
 load_dotenv()
+signing_key = os.getenv("INNGEST_SIGNING_KEY")
 app = FastAPI()
 inngest_client = inngest.Inngest(
     app_id="rag_app",
