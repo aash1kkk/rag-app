@@ -2,6 +2,7 @@ fastapi
 uvicorn
 inngest
 python-dotenv
+llama-index
 qdrant-client
 google-genai
 pydantic
