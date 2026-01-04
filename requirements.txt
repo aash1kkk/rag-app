@@ -3,5 +3,5 @@ uvicorn
 inngest
 python-dotenv
 qdrant-client
-google-generativeai
+google-genai
 pydantic
