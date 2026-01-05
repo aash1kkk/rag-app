@@ -5,17 +5,18 @@ import os
 
 import streamlit as st
 import inngest
+import requests
 from dotenv import load_dotenv
 
-load_dotenv()  # Load env vars from Railway or local .env
+load_dotenv()
 
 # ----------------------------
-# Streamlit Page Config
+# Streamlit config
 # ----------------------------
 st.set_page_config(page_title="RAG Ingest PDF", page_icon="📄", layout="centered")
 
 # ----------------------------
-# Asyncio loop helper
+# Async loop helper (CRITICAL)
 # ----------------------------
 def get_asyncio_loop():
     try:
@@ -26,14 +27,15 @@ def get_asyncio_loop():
         return loop
 
 # ----------------------------
-# Inngest Client
+# Inngest client (EVENT KEY)
 # ----------------------------
 @st.cache_resource
 def get_inngest_client() -> inngest.Inngest:
     event_key = os.getenv("INNGEST_EVENT_KEY")
     if not event_key:
-        st.error("INNGEST_EVENT_KEY environment variable is missing!")
-        raise ValueError("INNGEST_EVENT_KEY is required to send events.")
+        st.error("INNGEST_EVENT_KEY is missing")
+        raise ValueError("Missing INNGEST_EVENT_KEY")
+
     return inngest.Inngest(
         app_id="rag_app",
         event_key=event_key,
@@ -41,19 +43,19 @@ def get_inngest_client() -> inngest.Inngest:
     )
 
 # ----------------------------
-# File Upload Handling
+# File handling
 # ----------------------------
 def save_uploaded_pdf(file) -> Path:
-    uploads_dir = Path("/tmp/uploads")
-    uploads_dir.mkdir(parents=True, exist_ok=True)
-    file_path = uploads_dir / file.name
-    file_path.write_bytes(file.getbuffer())
-    return file_path
+    uploads = Path("/tmp/uploads")
+    uploads.mkdir(parents=True, exist_ok=True)
+    path = uploads / file.name
+    path.write_bytes(file.getbuffer())
+    return path
 
 # ----------------------------
-# Async Event Trigger
+# Send ingest event
 # ----------------------------
-async def send_rag_ingest_event(pdf_path: Path) -> None:
+async def send_rag_ingest_event(pdf_path: Path):
     client = get_inngest_client()
     await client.send(
         inngest.Event(
@@ -65,12 +67,12 @@ async def send_rag_ingest_event(pdf_path: Path) -> None:
         )
     )
 
-async def send_rag_query_event(question: str, top_k: int) -> dict:
-    """
-    Sends a query event and directly returns the output from the SDK.
-    """
+# ----------------------------
+# Send query event (RETURNS EVENT IDS)
+# ----------------------------
+async def send_rag_query_event(question: str, top_k: int):
     client = get_inngest_client()
-    result = await client.send(
+    return await client.send(
         inngest.Event(
             name="rag/query_pdf_ai",
             data={
@@ -79,44 +81,85 @@ async def send_rag_query_event(question: str, top_k: int) -> dict:
             },
         )
     )
-    # result is already the output dictionary
-    return result
 
 # ----------------------------
-# PDF Upload UI
+# Inngest REST API helpers (API TOKEN)
+# ----------------------------
+INNGEST_API_BASE = "https://api.inngest.com/v1"
+
+def fetch_runs(event_id: str) -> list[dict]:
+    api_token = os.getenv("INNGEST_SIGNING_KEY")
+    if not api_token:
+        raise ValueError("Missing INNGEST_SIGNING_KEY")
+
+    url = f"{INNGEST_API_BASE}/events/{event_id}/runs"
+    headers = {"Authorization": f"Bearer {api_token}"}
+
+    resp = requests.get(url, headers=headers)
+    resp.raise_for_status()
+    return resp.json()["data"]
+
+def wait_for_run_output(event_id: str, timeout=120):
+    start = time.time()
+    while True:
+        runs = fetch_runs(event_id)
+        if runs:
+            run = runs[0]
+            status = run["status"]
+
+            if status in ("Completed", "Succeeded", "Success", "Finished"):
+                return run.get("output", {})
+
+            if status in ("Failed", "Cancelled"):
+                raise RuntimeError(f"Inngest run {status}")
+
+        if time.time() - start > timeout:
+            raise TimeoutError("Timed out waiting for Inngest run")
+
+        time.sleep(1)
+
+# ----------------------------
+# UI — Upload PDF
 # ----------------------------
 st.title("Upload a PDF to Ingest")
-uploaded = st.file_uploader("Choose a PDF", type=["pdf"], accept_multiple_files=False)
 
-if uploaded is not None:
-    with st.spinner("Uploading and triggering ingestion..."):
+uploaded = st.file_uploader("Choose a PDF", type=["pdf"])
+
+if uploaded:
+    with st.spinner("Uploading and ingesting..."):
         path = save_uploaded_pdf(uploaded)
         loop = get_asyncio_loop()
         loop.run_until_complete(send_rag_ingest_event(path))
-        time.sleep(0.3)
-    st.success(f"Triggered ingestion for: {path.name}")
-    st.caption("You can upload another PDF if you like.")
+    st.success(f"Ingestion triggered for {path.name}")
 
 # ----------------------------
-# Query Form
+# UI — Query
 # ----------------------------
 st.divider()
 st.title("Ask a question about your PDFs")
 
-with st.form("rag_query_form"):
+with st.form("query_form"):
     question = st.text_input("Your question")
-    top_k = st.number_input("How many chunks to retrieve", min_value=1, max_value=300, value=5, step=1)
+    top_k = st.number_input("Top K Chunks", 1, 300, 5)
     submitted = st.form_submit_button("Ask")
 
     if submitted and question.strip():
-        with st.spinner("Sending event and generating answer..."):
+        with st.spinner("Generating answer..."):
             loop = get_asyncio_loop()
-            output = loop.run_until_complete(send_rag_query_event(question.strip(), int(top_k)))
+
+            event_ids = loop.run_until_complete(
+                send_rag_query_event(question.strip(), int(top_k))
+            )
+
+            event_id = event_ids[0]  # IMPORTANT
+            output = wait_for_run_output(event_id)
+
             answer = output.get("answer", "")
             sources = output.get("sources", [])
 
         st.subheader("Answer")
-        st.write(answer or "(No answer)")
+        st.write(answer or "(No answer returned)")
+
         if sources:
             st.caption("Sources")
             for s in sources:
