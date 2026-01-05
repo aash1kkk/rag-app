@@ -69,7 +69,7 @@ def send_rag_query_event(question: str, top_k: int) -> None:
         )
     )
 
-    return result[0]
+    return result.ids[0]
 
 
 def _inngest_api_base() -> str:
