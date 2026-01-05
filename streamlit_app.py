@@ -1,31 +1,34 @@
 import os
 import time
+import asyncio
 from pathlib import Path
 
 import streamlit as st
 import inngest
 from dotenv import load_dotenv
 
+# -------------------------------------------------
 # Load env vars (Railway injects them automatically)
+# -------------------------------------------------
 load_dotenv()
 
-# -------------------------
+# -------------------------------------------------
 # Streamlit config
-# -------------------------
+# -------------------------------------------------
 st.set_page_config(
     page_title="RAG Ingest PDF",
     page_icon="📄",
     layout="centered",
 )
 
-# -------------------------
+# -------------------------------------------------
 # Inngest client
-# -------------------------
+# -------------------------------------------------
 @st.cache_resource
 def get_inngest_client() -> inngest.Inngest:
     event_key = os.getenv("INNGEST_EVENT_KEY")
     if not event_key:
-        st.error("❌ INNGEST_EVENT_KEY not set")
+        st.error("❌ INNGEST_EVENT_KEY is not set")
         raise RuntimeError("Missing INNGEST_EVENT_KEY")
 
     return inngest.Inngest(
@@ -34,9 +37,15 @@ def get_inngest_client() -> inngest.Inngest:
         is_production=True,
     )
 
-# -------------------------
+# -------------------------------------------------
+# Async helper (Streamlit-safe)
+# -------------------------------------------------
+def run_async(coro):
+    return asyncio.run(coro)
+
+# -------------------------------------------------
 # Helpers
-# -------------------------
+# -------------------------------------------------
 def save_uploaded_pdf(file) -> Path:
     uploads_dir = Path("/tmp/uploads")  # Railway-safe temp dir
     uploads_dir.mkdir(parents=True, exist_ok=True)
@@ -44,9 +53,9 @@ def save_uploaded_pdf(file) -> Path:
     path.write_bytes(file.getbuffer())
     return path
 
-# -------------------------
-# UI: PDF upload
-# -------------------------
+# -------------------------------------------------
+# UI: Upload PDF
+# -------------------------------------------------
 st.title("📄 Upload a PDF to ingest")
 
 uploaded = st.file_uploader(
@@ -60,13 +69,15 @@ if uploaded:
         pdf_path = save_uploaded_pdf(uploaded)
         client = get_inngest_client()
 
-        client.send(
-            inngest.Event(
-                name="rag/ingest_pdf",
-                data={
-                    "pdf_path": str(pdf_path),
-                    "source_id": pdf_path.name,
-                },
+        run_async(
+            client.send(
+                inngest.Event(
+                    name="rag/ingest_pdf",
+                    data={
+                        "pdf_path": str(pdf_path),
+                        "source_id": pdf_path.name,
+                    },
+                )
             )
         )
 
@@ -75,9 +86,9 @@ if uploaded:
     st.success(f"✅ Ingestion triggered for **{pdf_path.name}**")
     st.caption("Ingestion runs asynchronously in the background.")
 
-# -------------------------
-# UI: Query
-# -------------------------
+# -------------------------------------------------
+# UI: Ask question
+# -------------------------------------------------
 st.divider()
 st.title("❓ Ask a question about your PDFs")
 
@@ -97,18 +108,20 @@ with st.form("rag_query_form"):
         with st.spinner("Sending your question to Inngest…"):
             client = get_inngest_client()
 
-            client.send(
-                inngest.Event(
-                    name="rag/query_pdf_ai",
-                    data={
-                        "question": question.strip(),
-                        "top_k": int(top_k),
-                    },
+            run_async(
+                client.send(
+                    inngest.Event(
+                        name="rag/query_pdf_ai",
+                        data={
+                            "question": question.strip(),
+                            "top_k": int(top_k),
+                        },
+                    )
                 )
             )
 
         st.success("✅ Question submitted!")
         st.info(
             "🧠 Your question is being processed asynchronously.\n\n"
-            "Results will be available once the Inngest function completes."
+            "Check results once the Inngest function completes."
         )
