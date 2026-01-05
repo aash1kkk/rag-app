@@ -15,10 +15,17 @@ st.set_page_config(page_title="RAG Ingest PDF", page_icon="📄", layout="center
 
 # Inngest client
 @st.cache_resource
+@st.cache_resource
 def get_inngest_client() -> inngest.Inngest:
-    api_key = os.getenv("INNGEST_API_KEY")
-    return inngest.Inngest(app_id="rag_app", api_key=api_key, is_production=True)
-
+    event_key = os.getenv("INNGEST_EVENT_KEY")
+    if not event_key:
+        st.error("INNGEST_EVENT_KEY environment variable is missing!")
+        raise ValueError("INNGEST_EVENT_KEY is required to send events.")
+    return inngest.Inngest(
+        app_id="rag_app",
+        event_key=event_key,
+        is_production=True,
+    )
 # Save uploaded PDF temporarily
 def save_uploaded_pdf(file) -> Path:
     uploads_dir = Path("/tmp/uploads")  # Railway ephemeral storage
