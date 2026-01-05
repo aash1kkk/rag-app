@@ -6,7 +6,6 @@ import os
 import streamlit as st
 import inngest
 from dotenv import load_dotenv
-import requests
 
 load_dotenv()  # Load env vars from Railway or local .env
 
@@ -15,20 +14,16 @@ load_dotenv()  # Load env vars from Railway or local .env
 # ----------------------------
 st.set_page_config(page_title="RAG Ingest PDF", page_icon="📄", layout="centered")
 
-
 # ----------------------------
 # Asyncio loop helper
 # ----------------------------
 def get_asyncio_loop():
     try:
-        # Try to get a running loop
         return asyncio.get_running_loop()
     except RuntimeError:
-        # Create a new loop if none exists
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         return loop
-
 
 # ----------------------------
 # Inngest Client
@@ -45,17 +40,15 @@ def get_inngest_client() -> inngest.Inngest:
         is_production=True,
     )
 
-
 # ----------------------------
 # File Upload Handling
 # ----------------------------
 def save_uploaded_pdf(file) -> Path:
-    uploads_dir = Path("/tmp/uploads")  # Railway ephemeral storage
+    uploads_dir = Path("/tmp/uploads")
     uploads_dir.mkdir(parents=True, exist_ok=True)
     file_path = uploads_dir / file.name
     file_path.write_bytes(file.getbuffer())
     return file_path
-
 
 # ----------------------------
 # Async Event Trigger
@@ -72,8 +65,10 @@ async def send_rag_ingest_event(pdf_path: Path) -> None:
         )
     )
 
-
-async def send_rag_query_event(question: str, top_k: int) -> str:
+async def send_rag_query_event(question: str, top_k: int) -> dict:
+    """
+    Sends a query event and directly returns the output from the SDK.
+    """
     client = get_inngest_client()
     result = await client.send(
         inngest.Event(
@@ -84,45 +79,8 @@ async def send_rag_query_event(question: str, top_k: int) -> str:
             },
         )
     )
-    return result[0]  # event_id
-
-
-# ----------------------------
-# Inngest API helpers
-# ----------------------------
-def _inngest_api_base() -> str:
-    return os.getenv("INNGEST_API_BASE", "https://api.inngest.com/v1")
-
-
-def fetch_runs(event_id: str) -> list[dict]:
-    url = f"{_inngest_api_base()}/events/{event_id}/runs"
-    event_key = os.getenv("INNGEST_EVENT_KEY")
-    if not event_key:
-        raise ValueError("INNGEST_EVENT_KEY is required for API requests")
-
-    headers = {"Authorization": f"Bearer {event_key}"}
-    resp = requests.get(url, headers=headers)
-    resp.raise_for_status()
-    return resp.json().get("data", [])
-
-
-def wait_for_run_output(event_id: str, timeout_s: float = 120.0, poll_interval_s: float = 1.0) -> dict:
-    start = time.time()
-    last_status = None
-    while True:
-        runs = fetch_runs(event_id)
-        if runs:
-            run = runs[0]
-            status = run.get("status")
-            last_status = status or last_status
-            if status in ("Completed", "Succeeded", "Success", "Finished"):
-                return run.get("output") or {}
-            if status in ("Failed", "Cancelled"):
-                raise RuntimeError(f"Function run {status}")
-        if time.time() - start > timeout_s:
-            raise TimeoutError(f"Timed out waiting for run output (last status: {last_status})")
-        time.sleep(poll_interval_s)
-
+    # result is already the output dictionary
+    return result
 
 # ----------------------------
 # PDF Upload UI
@@ -153,8 +111,7 @@ with st.form("rag_query_form"):
     if submitted and question.strip():
         with st.spinner("Sending event and generating answer..."):
             loop = get_asyncio_loop()
-            event_id = loop.run_until_complete(send_rag_query_event(question.strip(), int(top_k)))
-            output = wait_for_run_output(event_id)
+            output = loop.run_until_complete(send_rag_query_event(question.strip(), int(top_k)))
             answer = output.get("answer", "")
             sources = output.get("sources", [])
 
