@@ -17,6 +17,20 @@ st.set_page_config(page_title="RAG Ingest PDF", page_icon="📄", layout="center
 
 
 # ----------------------------
+# Asyncio loop helper
+# ----------------------------
+def get_asyncio_loop():
+    try:
+        # Try to get a running loop
+        return asyncio.get_running_loop()
+    except RuntimeError:
+        # Create a new loop if none exists
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        return loop
+
+
+# ----------------------------
 # Inngest Client
 # ----------------------------
 @st.cache_resource
@@ -59,28 +73,6 @@ async def send_rag_ingest_event(pdf_path: Path) -> None:
     )
 
 
-# ----------------------------
-# PDF Upload UI
-# ----------------------------
-st.title("Upload a PDF to Ingest")
-uploaded = st.file_uploader("Choose a PDF", type=["pdf"], accept_multiple_files=False)
-
-if uploaded is not None:
-    with st.spinner("Uploading and triggering ingestion..."):
-        path = save_uploaded_pdf(uploaded)
-        loop = asyncio.get_event_loop()
-        loop.run_until_complete(send_rag_ingest_event(path))
-        time.sleep(0.3)
-    st.success(f"Triggered ingestion for: {path.name}")
-    st.caption("You can upload another PDF if you like.")
-
-# ----------------------------
-# Query Section
-# ----------------------------
-st.divider()
-st.title("Ask a question about your PDFs")
-
-
 async def send_rag_query_event(question: str, top_k: int) -> str:
     client = get_inngest_client()
     result = await client.send(
@@ -95,6 +87,9 @@ async def send_rag_query_event(question: str, top_k: int) -> str:
     return result[0]  # event_id
 
 
+# ----------------------------
+# Inngest API helpers
+# ----------------------------
 def _inngest_api_base() -> str:
     return os.getenv("INNGEST_API_BASE", "https://api.inngest.com/v1")
 
@@ -130,8 +125,26 @@ def wait_for_run_output(event_id: str, timeout_s: float = 120.0, poll_interval_s
 
 
 # ----------------------------
+# PDF Upload UI
+# ----------------------------
+st.title("Upload a PDF to Ingest")
+uploaded = st.file_uploader("Choose a PDF", type=["pdf"], accept_multiple_files=False)
+
+if uploaded is not None:
+    with st.spinner("Uploading and triggering ingestion..."):
+        path = save_uploaded_pdf(uploaded)
+        loop = get_asyncio_loop()
+        loop.run_until_complete(send_rag_ingest_event(path))
+        time.sleep(0.3)
+    st.success(f"Triggered ingestion for: {path.name}")
+    st.caption("You can upload another PDF if you like.")
+
+# ----------------------------
 # Query Form
 # ----------------------------
+st.divider()
+st.title("Ask a question about your PDFs")
+
 with st.form("rag_query_form"):
     question = st.text_input("Your question")
     top_k = st.number_input("How many chunks to retrieve", min_value=1, max_value=300, value=5, step=1)
@@ -139,7 +152,7 @@ with st.form("rag_query_form"):
 
     if submitted and question.strip():
         with st.spinner("Sending event and generating answer..."):
-            loop = asyncio.get_event_loop()
+            loop = get_asyncio_loop()
             event_id = loop.run_until_complete(send_rag_query_event(question.strip(), int(top_k)))
             output = wait_for_run_output(event_id)
             answer = output.get("answer", "")
