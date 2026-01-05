@@ -6,3 +6,4 @@ llama-index
 qdrant-client
 google-genai
 pydantic
+streamlit
