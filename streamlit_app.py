@@ -15,7 +15,7 @@ st.set_page_config(page_title="RAG Ingest PDF", page_icon="📄", layout="center
 
 @st.cache_resource
 def get_inngest_client() -> inngest.Inngest:
-    return inngest.Inngest(app_id="rag_app", is_production=False)
+    return inngest.Inngest(app_id="rag_app", signing_key=os.getenv("INNGEST_SIGNING_KEY"))
 
 
 def save_uploaded_pdf(file) -> Path:
@@ -27,9 +27,9 @@ def save_uploaded_pdf(file) -> Path:
     return file_path
 
 
-async def send_rag_ingest_event(pdf_path: Path) -> None:
+def send_rag_ingest_event(pdf_path: Path) -> None:
     client = get_inngest_client()
-    await client.send(
+    client.send(
         inngest.Event(
             name="rag/ingest_pdf",
             data={
@@ -47,7 +47,7 @@ if uploaded is not None:
     with st.spinner("Uploading and triggering ingestion..."):
         path = save_uploaded_pdf(uploaded)
         # Kick off the event and block until the send completes
-        asyncio.run(send_rag_ingest_event(path))
+        send_rag_ingest_event(path)
         # Small pause for user feedback continuity
         time.sleep(0.3)
     st.success(f"Triggered ingestion for: {path.name}")
@@ -57,9 +57,9 @@ st.divider()
 st.title("Ask a question about your PDFs")
 
 
-async def send_rag_query_event(question: str, top_k: int) -> None:
+def send_rag_query_event(question: str, top_k: int) -> None:
     client = get_inngest_client()
-    result = await client.send(
+    result = client.send(
         inngest.Event(
             name="rag/query_pdf_ai",
             data={
@@ -111,7 +111,7 @@ with st.form("rag_query_form"):
     if submitted and question.strip():
         with st.spinner("Sending event and generating answer..."):
             # Fire-and-forget event to Inngest for observability/workflow
-            event_id = asyncio.run(send_rag_query_event(question.strip(), int(top_k)))
+            event_id = send_rag_query_event(question.strip(), int(top_k))
             # Poll the local Inngest API for the run's output
             output = wait_for_run_output(event_id)
             answer = output.get("answer", "")
